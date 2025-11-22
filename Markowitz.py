@@ -62,6 +62,15 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
+        # 1. Count number of assets (excluding self.exclude)
+        m = len(assets)
+        
+        # 2. Calculate equal weight: 1/m
+        equal_weight = 1.0 / m
+        
+        # 3. Assign equal weight to all assets across entire time period
+        for asset in assets:
+            self.portfolio_weights[asset] = equal_weight
 
         """
         TODO: Complete Task 1 Above
@@ -113,9 +122,35 @@ class RiskParityPortfolio:
         """
         TODO: Complete Task 2 Below
         """
+        R_all = df_returns.copy()
+        epsilon = 1e-6  # Small value to prevent division by zero
+        
+        # NOTE: Start from lookback+1 to match Mean-Variance loop pattern
+        for i in range(self.lookback + 1, len(df)):
+            
+            # 1. Get historical returns for past lookback days
+            # R_n: Contains data from day (i-lookback) to day (i-1)
+            R_n = R_all[assets].iloc[i - self.lookback : i]
+            
+            # 2. Calculate volatility (standard deviation of daily returns)
+            sigma = R_n.std()
+            
+            # 3. Calculate inverse volatility (1 / sigma_i)
+            # Add epsilon to prevent division by zero
+            inverse_sigma = 1.0 / (sigma + epsilon) 
 
+            # 4. Calculate sum of inverse volatilities
+            sum_inverse_sigma = inverse_sigma.sum()
+            
+            # 5. Normalize to get weights (sum = 1)
+            if sum_inverse_sigma > 0:
+                weights = inverse_sigma / sum_inverse_sigma
+            else:
+                # Fallback to equal weights in extreme cases
+                weights = pd.Series(1.0 / len(assets), index=assets)
 
-
+            # 6. Assign weights to current date df.index[i]
+            self.portfolio_weights.loc[df.index[i], assets] = weights.to_dict()
         """
         TODO: Complete Task 2 Above
         """
@@ -188,10 +223,28 @@ class MeanVariancePortfolio:
                 TODO: Complete Task 3 Below
                 """
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # NOTE: 'n' is the number of assets (excluding SPY)
+                
+                # 1. Initialize decision variable w (portfolio weights)
+                # lb=0 enforces long-only constraint: w_i >= 0
+                w = model.addMVar(n, name="w", lb=0, ub=gp.GRB.INFINITY)
+                
+                # 2. Set objective function
+                # Maximize: mu'w - (gamma/2) * w'Sigma*w
+                
+                # Linear term: expected return
+                linear_term = mu @ w
+                
+                # Quadratic term: risk penalty
+                # Q = - (gamma/2) * Sigma
+                Q = - (gamma / 2.0) * Sigma
+                quadratic_term = w @ Q @ w
+                
+                model.setObjective(linear_term + quadratic_term, gp.GRB.MAXIMIZE)
+                
+                # 3. Add no-leverage constraint
+                # Sum of weights must equal 1
+                model.addConstr(w.sum() == 1, name="no_leverage")
 
                 """
                 TODO: Complete Task 3 Above
